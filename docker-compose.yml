@@ -1,14 +1,68 @@
 services:
-  stats-server:
-    ports:
-      - "9090:9090"
-
   stats-db:
     image: postgres:16.1
-
-  ewm-service:
+    container_name: stats-db
+    environment:
+      POSTGRES_DB: ${STATS_DB_NAME:-stats}
+      POSTGRES_USER: ${STATS_DB_USER:-admin}
+      POSTGRES_PASSWORD: ${STATS_DB_PASSWORD:-admin}
     ports:
-      - "8080:8080"
+      - "6541:5432"
+    volumes:
+      - stats-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${STATS_DB_USER:-admin} -d ${STATS_DB_NAME:-stats}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  stats-server:
+    build: ./stats-server
+    container_name: stats-server
+    depends_on:
+      stats-db:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: ${STATS_DATASOURCE_URL:-jdbc:postgresql://stats-db:5432/stats}
+      SPRING_DATASOURCE_USERNAME: ${STATS_DB_USER:-admin}
+      SPRING_DATASOURCE_PASSWORD: ${STATS_DB_PASSWORD:-admin}
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
 
   ewm-db:
     image: postgres:16.1
+    container_name: ewm-db
+    environment:
+      POSTGRES_DB: ${EWM_DB_NAME:-ewm}
+      POSTGRES_USER: ${EWM_DB_USER:-admin}
+      POSTGRES_PASSWORD: ${EWM_DB_PASSWORD:-admin}
+    ports:
+      - "6542:5432"
+    volumes:
+      - ewm-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${EWM_DB_USER:-admin} -d ${EWM_DB_NAME:-ewm}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  ewm-service:
+    build: ./main-service
+    container_name: ewm-service
+    depends_on:
+      ewm-db:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: ${EWM_DATASOURCE_URL:-jdbc:postgresql://ewm-db:5432/ewm}
+      SPRING_DATASOURCE_USERNAME: ${EWM_DB_USER:-admin}
+      SPRING_DATASOURCE_PASSWORD: ${EWM_DB_PASSWORD:-admin}
+    restart: unless-stopped
+
+volumes:
+  stats-data:
+  ewm-data:
