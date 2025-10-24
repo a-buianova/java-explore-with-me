@@ -29,11 +29,21 @@ public class StatsClientImpl implements StatsClient {
 
     @Override
     public void sendHit(EndpointHitDto hit) {
+        if (hit == null) {
+            throw new IllegalArgumentException("hit must not be null");
+        }
         restTemplate.postForEntity(baseUrl + "/hit", hit, Void.class);
     }
 
     @Override
     public List<ViewStats> getStats(LocalDateTime start, LocalDateTime end, List<String> uris, boolean unique) {
+        if (start == null || end == null) {
+            throw new IllegalArgumentException("start and end must not be null");
+        }
+        if (end.isBefore(start)) {
+            throw new IllegalArgumentException("end must be equal to or after start");
+        }
+
         String startEnc = URLEncoder.encode(FMT.format(start), StandardCharsets.UTF_8);
         String endEnc   = URLEncoder.encode(FMT.format(end), StandardCharsets.UTF_8);
 
@@ -56,6 +66,8 @@ public class StatsClientImpl implements StatsClient {
                 null,
                 new ParameterizedTypeReference<List<ViewStats>>() {}
         );
-        return resp.getBody();
+
+        List<ViewStats> body = resp.getBody();
+        return body != null ? body : List.of();
     }
 }

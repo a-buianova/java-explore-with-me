@@ -13,10 +13,13 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * REST API for statistics.
- * Contracts match the official OpenAPI (POST /hit, GET /stats).
+ * REST controller for the Statistics Service.
+ * Endpoints comply with the OpenAPI specification:
+ *  - POST /hit   — record a hit
+ *  - GET  /stats — retrieve aggregated statistics
  */
 @RestController
+@RequestMapping
 @RequiredArgsConstructor
 public class StatsController {
 
@@ -24,7 +27,7 @@ public class StatsController {
 
     @PostMapping("/hit")
     @ResponseStatus(HttpStatus.CREATED)
-    public void saveHit(@RequestBody @Valid EndpointHitDto body) {
+    public void saveHit(@Valid @RequestBody EndpointHitDto body) {
         service.saveHit(body);
     }
 

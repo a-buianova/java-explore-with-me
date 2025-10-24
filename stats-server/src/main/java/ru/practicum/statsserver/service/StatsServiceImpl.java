@@ -12,7 +12,6 @@ import ru.practicum.statsserver.repository.StatsRepository;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Objects;
 
 @Slf4j
 @Service
@@ -24,8 +23,11 @@ public class StatsServiceImpl implements StatsService {
     @Override
     @Transactional
     public void saveHit(EndpointHitDto hit) {
-        Objects.requireNonNull(hit, "hit must not be null");
-        log.debug("Saving hit: app={}, uri={}, ip={}, ts={}", hit.getApp(), hit.getUri(), hit.getIp(), hit.getTimestamp());
+        if (hit == null) {
+            throw new BadRequestException("hit must not be null");
+        }
+        // Avoid logging raw IP (PII)
+        log.debug("Saving hit: app={}, uri={}, ts={}", hit.getApp(), hit.getUri(), hit.getTimestamp());
         repository.save(StatsMapper.toEntity(hit));
     }
 
@@ -42,9 +44,8 @@ public class StatsServiceImpl implements StatsService {
         boolean urisEmpty = (uris == null || uris.isEmpty());
         log.debug("Query stats: start={}, end={}, unique={}, uris={}", start, end, unique, uris);
 
-        if (unique) {
-            return repository.findStatsUnique(start, end, uris, urisEmpty);
-        }
-        return repository.findStats(start, end, uris, urisEmpty);
+        return unique
+                ? repository.findStatsUnique(start, end, uris, urisEmpty)
+                : repository.findStats(start, end, uris, urisEmpty);
     }
 }

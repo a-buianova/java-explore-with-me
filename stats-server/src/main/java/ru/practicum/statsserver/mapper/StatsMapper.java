@@ -14,7 +14,6 @@ public final class StatsMapper {
             return null;
         }
         return EndpointHit.builder()
-                .id(dto.getId())
                 .app(dto.getApp())
                 .uri(dto.getUri())
                 .ip(dto.getIp())
