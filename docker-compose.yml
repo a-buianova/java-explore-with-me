@@ -18,13 +18,15 @@ services:
     restart: unless-stopped
 
   stats-server:
-    build: ./stats-server
+    build:
+      context: ./stats-server
+      dockerfile: Dockerfile
     container_name: stats-server
     depends_on:
       stats-db:
         condition: service_healthy
     environment:
-      SPRING_DATASOURCE_URL: ${STATS_DATASOURCE_URL:-jdbc:postgresql://stats-db:5432/stats}
+      SPRING_DATASOURCE_URL: ${STATS_DATASOURCE_URL:-jdbc:postgresql://stats-db:5432/${STATS_DB_NAME:-stats}}
       SPRING_DATASOURCE_USERNAME: ${STATS_DB_USER:-admin}
       SPRING_DATASOURCE_PASSWORD: ${STATS_DB_PASSWORD:-admin}
     ports:
@@ -58,7 +60,7 @@ services:
     ports:
       - "8080:8080"
     environment:
-      SPRING_DATASOURCE_URL: ${EWM_DATASOURCE_URL:-jdbc:postgresql://ewm-db:5432/ewm}
+      SPRING_DATASOURCE_URL: ${EWM_DATASOURCE_URL:-jdbc:postgresql://ewm-db:5432/${EWM_DB_NAME:-ewm}}
       SPRING_DATASOURCE_USERNAME: ${EWM_DB_USER:-admin}
       SPRING_DATASOURCE_PASSWORD: ${EWM_DB_PASSWORD:-admin}
     restart: unless-stopped
