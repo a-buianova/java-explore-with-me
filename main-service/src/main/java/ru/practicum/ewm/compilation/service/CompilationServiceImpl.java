@@ -21,8 +21,8 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * Business logic for creating, editing and reading compilations.
- * Ensures consistent event set and clear error messages.
+ * Use cases for compilations: create, update, list, read.
+ * Ensures referenced events exist when setting a custom list.
  */
 @Slf4j
 @Service
@@ -33,19 +33,19 @@ public class CompilationServiceImpl implements CompilationService {
     private final CompilationRepository compilationRepository;
     private final EventRepository eventRepository;
 
+    /** Creates a compilation. Events list is optional. */
     @Override
     @Transactional
     public CompilationDto create(NewCompilationDto req) {
         Set<Event> events = loadEvents(req.getEvents());
         Compilation entity = CompilationMapper.toEntity(req, events);
         entity = compilationRepository.save(entity);
-
         log.info("Created compilation id={} pinned={} title='{}'",
                 entity.getId(), entity.getPinned(), entity.getTitle());
-
         return toDtoWithEvents(entity);
     }
 
+    /** Deletes compilation by id. */
     @Override
     @Transactional
     public void delete(Long compId) {
@@ -54,6 +54,10 @@ public class CompilationServiceImpl implements CompilationService {
         log.info("Deleted compilation id={}", compId);
     }
 
+    /**
+     * Partially updates a compilation:
+     * title, pinned and the full set of events (if provided).
+     */
     @Override
     @Transactional
     public CompilationDto update(Long compId, UpdateCompilationRequest req) {
@@ -72,21 +76,19 @@ public class CompilationServiceImpl implements CompilationService {
         Compilation saved = compilationRepository.save(entity);
         log.info("Updated compilation id={} pinned={} title='{}'",
                 saved.getId(), saved.getPinned(), saved.getTitle());
-
         return toDtoWithEvents(saved);
     }
 
+    /** Returns compilations page converted to DTOs. */
     @Override
     public List<CompilationDto> getAll(Boolean pinned, Pageable pageable) {
         var page = (pinned == null)
                 ? compilationRepository.findAll(pageable)
                 : compilationRepository.findAllByPinned(pinned, pageable);
-
-        return page.getContent().stream()
-                .map(this::toDtoWithEvents)
-                .toList();
+        return page.getContent().stream().map(this::toDtoWithEvents).toList();
     }
 
+    /** Returns a single compilation by id. */
     @Override
     public CompilationDto getById(Long compId) {
         Compilation c = getOrThrow(compId);
@@ -100,27 +102,43 @@ public class CompilationServiceImpl implements CompilationService {
                 .orElseThrow(() -> new NotFoundException("Compilation %d not found".formatted(id)));
     }
 
+    /**
+     * Loads events by ids; if any are missing — throws 404 with a clear list.
+     * Сохраняем порядок в точности как пришёл в запросе.
+     */
     private Set<Event> loadEvents(List<Long> ids) {
         if (ids == null || ids.isEmpty()) return Set.of();
 
         List<Event> found = eventRepository.findAllById(ids);
-        Set<Long> requested = new HashSet<>(ids);
-        Set<Long> foundIds = found.stream().map(Event::getId).collect(Collectors.toSet());
+        Map<Long, Event> byId = found.stream()
+                .collect(Collectors.toMap(Event::getId, e -> e));
 
-        if (!foundIds.containsAll(requested)) {
-            List<Long> missing = requested.stream()
-                    .filter(id -> !foundIds.contains(id))
-                    .sorted()
-                    .toList();
+        List<Long> missing = ids.stream()
+                .filter(id -> !byId.containsKey(id))
+                .distinct()
+                .sorted()
+                .toList();
+        if (!missing.isEmpty()) {
             throw new NotFoundException("Events not found: " + missing);
         }
-        return Set.copyOf(found);
+
+        LinkedHashSet<Event> ordered = new LinkedHashSet<>();
+        for (Long id : ids) {
+            ordered.add(byId.get(id));
+        }
+        return ordered;
     }
 
+    /** Maps entity + its events to DTO. Views are not required here (0). */
     private CompilationDto toDtoWithEvents(Compilation entity) {
-        List<EventShortDto> events = entity.getEvents().stream()
+        Set<Event> eventsSet = (entity.getEvents() == null) ? Set.of() : entity.getEvents();
+
+        List<EventShortDto> events = eventsSet.stream()
+                .filter(Objects::nonNull)
+                .sorted(Comparator.comparing(Event::getId))
                 .map(e -> EventMapper.toShortDto(e, 0L))
                 .toList();
+
         return CompilationMapper.toDto(entity, events);
     }
 }

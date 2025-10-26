@@ -20,7 +20,8 @@ import java.time.LocalDateTime;
 import java.util.*;
 
 /**
- * Business logic for managing participation requests.
+ * Use cases for participation requests: create/cancel/list/update statuses.
+ * Enforces business constraints and participant limit.
  */
 @Service
 @RequiredArgsConstructor
@@ -31,13 +32,22 @@ public class ParticipationRequestServiceImpl implements ParticipationRequestServ
     private final UserRepository userRepository;
     private final EventRepository eventRepository;
 
+    /** Returns current user's requests to others' events. */
     @Override
+    @Transactional(readOnly = true)
     public List<ParticipationRequestDto> getUserRequests(Long userId) {
         return repository.findAllByRequesterId(userId).stream()
                 .map(ParticipationRequestMapper::toDto)
                 .toList();
     }
 
+    /**
+     * Creates a new participation request.
+     * - 409 if initiator requests their own event
+     * - 409 if event not published
+     * - 409 if participant limit reached
+     * - Auto CONFIRMED if (limit==0 OR moderation==false); otherwise PENDING
+     */
     @Override
     public ParticipationRequestDto addRequest(Long userId, Long eventId) {
         User user = userRepository.findById(userId)
@@ -45,25 +55,26 @@ public class ParticipationRequestServiceImpl implements ParticipationRequestServ
         Event event = eventRepository.findById(eventId)
                 .orElseThrow(() -> new NotFoundException("Event not found"));
 
-        if (repository.existsByEventIdAndRequesterId(eventId, userId))
+        if (repository.existsByEventIdAndRequesterId(eventId, userId)) {
             throw new ConflictException("Request already exists");
-
-        if (event.getInitiator().getId().equals(userId))
+        }
+        if (Objects.equals(event.getInitiator().getId(), userId)) {
             throw new ConflictException("Initiator cannot request participation in own event");
-
-        if (!"PUBLISHED".equals(event.getState().name()))
+        }
+        if (!"PUBLISHED".equals(event.getState().name())) {
             throw new ConflictException("Cannot participate in unpublished event");
-
-        if (event.getParticipantLimit() < 0)
+        }
+        if (event.getParticipantLimit() < 0) {
             throw new BadRequestException("Participant limit cannot be negative");
-
+        }
+        // ВАЖНО: если лимит > 0 и он уже достигнут — запрещаем создавать запрос вовсе (409)
         if (event.getParticipantLimit() > 0 &&
-                event.getConfirmedRequests() >= event.getParticipantLimit())
+                event.getConfirmedRequests() >= event.getParticipantLimit()) {
             throw new ConflictException("Event participant limit reached");
+        }
 
-        RequestStatus status = (event.getParticipantLimit() == 0 || !event.isRequestModeration())
-                ? RequestStatus.CONFIRMED
-                : RequestStatus.PENDING;
+        boolean autoConfirm = (event.getParticipantLimit() == 0) || !event.isRequestModeration();
+        RequestStatus status = autoConfirm ? RequestStatus.CONFIRMED : RequestStatus.PENDING;
 
         ParticipationRequest request = ParticipationRequest.builder()
                 .event(event)
@@ -72,59 +83,79 @@ public class ParticipationRequestServiceImpl implements ParticipationRequestServ
                 .created(LocalDateTime.now())
                 .build();
 
-        return ParticipationRequestMapper.toDto(repository.save(request));
+        ParticipationRequest saved = repository.save(request);
+
+        // Если автоподтверждение — увеличиваем счётчик подтверждённых.
+        if (status == RequestStatus.CONFIRMED) {
+            event.setConfirmedRequests(event.getConfirmedRequests() + 1);
+            eventRepository.save(event);
+        }
+
+        return ParticipationRequestMapper.toDto(saved);
     }
 
+    /** Cancels user's own request (status → CANCELED). */
     @Override
     public ParticipationRequestDto cancelRequest(Long userId, Long requestId) {
         ParticipationRequest request = repository.findById(requestId)
                 .orElseThrow(() -> new NotFoundException("Request not found"));
-        if (!Objects.equals(request.getRequester().getId(), userId))
+        if (!Objects.equals(request.getRequester().getId(), userId)) {
             throw new ConflictException("Cannot cancel someone else's request");
+        }
         request.setStatus(RequestStatus.CANCELED);
         return ParticipationRequestMapper.toDto(repository.save(request));
     }
 
+    /** Returns requests for organizer's own event. */
     @Override
+    @Transactional(readOnly = true)
     public List<ParticipationRequestDto> getEventRequests(Long userId, Long eventId) {
         Event event = eventRepository.findById(eventId)
                 .orElseThrow(() -> new NotFoundException("Event not found"));
-        if (!Objects.equals(event.getInitiator().getId(), userId))
+        if (!Objects.equals(event.getInitiator().getId(), userId)) {
             throw new ConflictException("User is not the initiator of this event");
+        }
         return repository.findAllByEventId(eventId).stream()
                 .map(ParticipationRequestMapper::toDto)
                 .toList();
     }
 
+    /**
+     * Batch updates request statuses by organizer (CONFIRMED/REJECTED).
+     * - 409 if trying to confirm when limit is already reached.
+     */
     @Override
     public EventRequestStatusUpdateResult updateRequestStatuses(Long userId, Long eventId,
                                                                 EventRequestStatusUpdateRequest req) {
         Event event = eventRepository.findById(eventId)
                 .orElseThrow(() -> new NotFoundException("Event not found"));
-        if (!Objects.equals(event.getInitiator().getId(), userId))
+        if (!Objects.equals(event.getInitiator().getId(), userId)) {
             throw new ConflictException("User is not the initiator of this event");
+        }
 
         List<ParticipationRequest> requests = repository.findAllById(req.getRequestIds());
-        if (requests.size() != req.getRequestIds().size())
+        if (requests.size() != req.getRequestIds().size()) {
             throw new NotFoundException("Some requests not found");
+        }
 
         List<ParticipationRequest> confirmed = new ArrayList<>();
         List<ParticipationRequest> rejected = new ArrayList<>();
 
         for (ParticipationRequest r : requests) {
-            if (r.getStatus() != RequestStatus.PENDING)
+            if (r.getStatus() != RequestStatus.PENDING) {
                 throw new ConflictException("Only pending requests can be changed");
+            }
 
             if ("CONFIRMED".equalsIgnoreCase(req.getStatus())) {
+                // Жёстко соблюдаем лимит: если мест нет — 409 (а не молчаливый REJECTED)
                 if (event.getParticipantLimit() > 0 &&
                         event.getConfirmedRequests() >= event.getParticipantLimit()) {
-                    r.setStatus(RequestStatus.REJECTED);
-                    rejected.add(r);
-                } else {
-                    r.setStatus(RequestStatus.CONFIRMED);
-                    confirmed.add(r);
-                    event.setConfirmedRequests(event.getConfirmedRequests() + 1);
+                    throw new ConflictException("Participant limit reached");
                 }
+                r.setStatus(RequestStatus.CONFIRMED);
+                confirmed.add(r);
+                event.setConfirmedRequests(event.getConfirmedRequests() + 1);
+
             } else if ("REJECTED".equalsIgnoreCase(req.getStatus())) {
                 r.setStatus(RequestStatus.REJECTED);
                 rejected.add(r);

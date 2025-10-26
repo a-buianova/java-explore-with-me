@@ -1,51 +1,108 @@
 package ru.practicum.ewm.event.repository;
 
-import org.springframework.data.domain.*;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.*;
 import org.springframework.data.repository.query.Param;
 import ru.practicum.ewm.event.model.Event;
 import ru.practicum.ewm.event.model.EventState;
-import java.time.LocalDateTime;
-import java.util.*;
 
-/** JPA repository for events. */
+import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.Optional;
+
+/**
+ * JPA repository for events.
+ * Handles both public and admin-level event search with dynamic filters.
+ */
 public interface EventRepository extends JpaRepository<Event, Long> {
 
+    /** Returns all events created by the given initiator. */
     Page<Event> findAllByInitiatorId(Long initiatorId, Pageable pageable);
 
+    /** Returns a single event by ID if it matches the required state. */
     Optional<Event> findByIdAndState(Long eventId, EventState state);
 
+    /**
+     * Public search for published events when categories filter is NOT provided.
+     * IMPORTANT: we use ":text = ''" check instead of NULL and avoid COALESCE
+     * to prevent Postgres error "could not determine data type of parameter".
+     * We use boolean flags (like in stats-server) instead of "IS NULL" for nullable parameters.
+     */
     @Query("""
-        SELECT e FROM Event e
-        WHERE e.state = 'PUBLISHED'
-          AND (:text IS NULL OR (LOWER(e.annotation) LIKE LOWER(CONCAT('%', :text, '%'))
-                                 OR LOWER(e.description) LIKE LOWER(CONCAT('%', :text, '%'))))
-          AND (:categories IS NULL OR e.category.id IN :categories)
-          AND (:paid IS NULL OR e.paid = :paid)
-          AND (e.eventDate >= :start)
-          AND (:end IS NULL OR e.eventDate <= :end)
+        SELECT e
+        FROM Event e
+        WHERE e.state = ru.practicum.ewm.event.model.EventState.PUBLISHED
+          AND (
+                 :text = ''
+              OR LOWER(e.annotation)  LIKE CONCAT('%', LOWER(:text), '%')
+              OR LOWER(e.description) LIKE CONCAT('%', LOWER(:text), '%')
+          )
+          AND ( :paidIsNull = true OR e.paid = :paid )
+          AND e.eventDate >= :start
+          AND ( :endDateIsNull = true OR e.eventDate <= :endDate )
         """)
-    Page<Event> searchPublic(@Param("text") String text,
-                             @Param("categories") Collection<Long> categories,
-                             @Param("paid") Boolean paid,
-                             @Param("start") LocalDateTime start,
-                             @Param("end") LocalDateTime end,
-                             Pageable pageable);
+    Page<Event> searchPublicNoCats(@Param("text") String text,
+                                   @Param("paid") Boolean paid,
+                                   @Param("paidIsNull") boolean paidIsNull,
+                                   @Param("start") LocalDateTime start,
+                                   @Param("endDate") LocalDateTime endDate,
+                                   @Param("endDateIsNull") boolean endDateIsNull,
+                                   Pageable pageable);
 
+    /**
+     * Public search for published events when categories filter IS provided.
+     * We assume that categories are passed only when the list is NOT empty.
+     * We use boolean flags (like in stats-server) instead of "IS NULL" for nullable parameters.
+     */
+    @Query("""
+        SELECT e
+        FROM Event e
+        WHERE e.state = ru.practicum.ewm.event.model.EventState.PUBLISHED
+          AND (
+                 :text = ''
+              OR LOWER(e.annotation)  LIKE CONCAT('%', LOWER(:text), '%')
+              OR LOWER(e.description) LIKE CONCAT('%', LOWER(:text), '%')
+          )
+          AND e.category.id IN :categories
+          AND ( :paidIsNull = true OR e.paid = :paid )
+          AND e.eventDate >= :start
+          AND ( :endDateIsNull = true OR e.eventDate <= :endDate )
+        """)
+    Page<Event> searchPublicWithCats(@Param("text") String text,
+                                     @Param("categories") Collection<Long> categories,
+                                     @Param("paid") Boolean paid,
+                                     @Param("paidIsNull") boolean paidIsNull,
+                                     @Param("start") LocalDateTime start,
+                                     @Param("endDate") LocalDateTime endDate,
+                                     @Param("endDateIsNull") boolean endDateIsNull,
+                                     Pageable pageable);
+
+    /**
+     * Admin search: supports filtering by user IDs, event states, categories and date range.
+     * We use boolean flags (like in stats-server) instead of "IS NULL" for nullable parameters
+     * to avoid "could not determine data type of parameter" errors in PostgreSQL.
+     */
     @Query("""
         SELECT e FROM Event e
-        WHERE (:users IS NULL OR e.initiator.id IN :users)
-          AND (:states IS NULL OR e.state IN :states)
-          AND (:categories IS NULL OR e.category.id IN :categories)
-          AND (:rangeStart IS NULL OR e.eventDate >= :rangeStart)
-          AND (:rangeEnd IS NULL OR e.eventDate <= :rangeEnd)
+        WHERE (:usersIsNull = true OR e.initiator.id IN :users)
+          AND (:statesIsNull = true OR e.state IN :states)
+          AND (:categoriesIsNull = true OR e.category.id IN :categories)
+          AND (:rangeStartIsNull = true OR e.eventDate >= :rangeStart)
+          AND (:rangeEndIsNull = true OR e.eventDate <= :rangeEnd)
         """)
     Page<Event> searchAdmin(@Param("users") Collection<Long> users,
+                            @Param("usersIsNull") boolean usersIsNull,
                             @Param("states") Collection<EventState> states,
+                            @Param("statesIsNull") boolean statesIsNull,
                             @Param("categories") Collection<Long> categories,
+                            @Param("categoriesIsNull") boolean categoriesIsNull,
                             @Param("rangeStart") LocalDateTime rangeStart,
+                            @Param("rangeStartIsNull") boolean rangeStartIsNull,
                             @Param("rangeEnd") LocalDateTime rangeEnd,
+                            @Param("rangeEndIsNull") boolean rangeEndIsNull,
                             Pageable pageable);
 
+    /** Counts how many events belong to the given category. */
     long countByCategoryId(Long categoryId);
 }

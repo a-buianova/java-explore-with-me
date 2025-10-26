@@ -1,5 +1,6 @@
 package ru.practicum.ewm.event.controller.pub;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.PositiveOrZero;
 import lombok.RequiredArgsConstructor;
@@ -12,6 +13,7 @@ import ru.practicum.ewm.event.service.EventService;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.List;
 
 /**
  * Public API for browsing published events.
@@ -30,26 +32,41 @@ public class EventPublicController {
 
     /** Returns a list of published events with filtering and pagination. */
     @GetMapping
-    public Collection<EventShortDto> search(
+    public List<EventShortDto> search(
             @RequestParam(required = false) String text,
-            @RequestParam(required = false) Collection<Long> categories,
+            @RequestParam(required = false) List<Long> categories,
             @RequestParam(required = false) Boolean paid,
             @RequestParam(required = false)
             @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime rangeStart,
             @RequestParam(required = false)
             @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime rangeEnd,
-            @RequestParam(defaultValue = "false") Boolean onlyAvailable,
-            @RequestParam(required = false) String sort, // EVENT_DATE | VIEWS
+            @RequestParam(defaultValue = "false") boolean onlyAvailable,
+            @RequestParam(required = false) String sort,
             @RequestParam(defaultValue = "0") @PositiveOrZero int from,
-            @RequestParam(defaultValue = "10") @Positive int size
+            @RequestParam(defaultValue = "10") @Positive int size,
+            HttpServletRequest request
     ) {
-        return service.searchPublic(text, categories, paid, rangeStart, rangeEnd,
-                onlyAvailable, sort, from, size, null).getContent();
+
+        Collection<Long> normalizedCats = (categories == null || categories.isEmpty()) ? null : categories;
+
+        return service.searchPublic(
+                text,
+                normalizedCats,
+                paid,
+                rangeStart,
+                rangeEnd,
+                onlyAvailable,
+                sort,
+                from,
+                size,
+                request
+        ).getContent();
     }
 
     /** Returns detailed information about a specific published event. */
     @GetMapping("/{eventId}")
-    public EventFullDto getById(@PathVariable long eventId) {
-        return service.getPublicById(eventId, null);
+    public EventFullDto getById(@PathVariable long eventId,
+                                HttpServletRequest request) {
+        return service.getPublicById(eventId, request);
     }
 }

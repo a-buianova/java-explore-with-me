@@ -2,15 +2,20 @@ package ru.practicum.ewm.common.exception;
 
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.convert.ConversionFailedException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageConversionException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.validation.BindException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingPathVariableException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
 
@@ -25,6 +30,23 @@ public class GlobalExceptionHandler {
     private static final String REASON_NOT_FOUND   = "The required object was not found.";
     private static final String REASON_CONFLICT    = "Integrity constraint has been violated.";
     private static final String REASON_INTERNAL    = "An unexpected error occurred.";
+
+    /** Preserve status from ResponseStatusException (400/404/409/...) instead of falling to 500. */
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ApiError> handleResponseStatus(ResponseStatusException ex) {
+        HttpStatus status = HttpStatus.valueOf(ex.getStatusCode().value());
+        String reason = switch (status) {
+            case BAD_REQUEST -> REASON_BAD_REQUEST;
+            case NOT_FOUND   -> REASON_NOT_FOUND;
+            case CONFLICT    -> REASON_CONFLICT;
+            default          -> REASON_INTERNAL;
+        };
+        String message = (ex.getReason() != null && !ex.getReason().isBlank())
+                ? ex.getReason()
+                : reason;
+        logAtLevel(status, "{} {} {}", status.value(), status.getReasonPhrase(), message);
+        return build(status, reason, message);
+    }
 
     /** Maps 404 to spec-compliant ApiError. */
     @ExceptionHandler(NotFoundException.class)
@@ -48,23 +70,24 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.BAD_REQUEST, REASON_BAD_REQUEST, ex.getMessage());
     }
 
-    /**
-     * Maps framework validation errors to 400.
-     * Returns a generic message to avoid leaking internal details.
-     */
+    /** Framework validation/binding/conversion → 400. */
     @ExceptionHandler({
             MethodArgumentNotValidException.class,
             ConstraintViolationException.class,
             HttpMessageNotReadableException.class,
+            HttpMessageConversionException.class,
             MissingServletRequestParameterException.class,
-            MethodArgumentTypeMismatchException.class
+            MissingPathVariableException.class,
+            MethodArgumentTypeMismatchException.class,
+            BindException.class,
+            ConversionFailedException.class
     })
     public ResponseEntity<ApiError> handleValidationErrors(Exception ex) {
         log.warn("400 Validation error: {}", ex.getMessage());
         return build(HttpStatus.BAD_REQUEST, REASON_BAD_REQUEST, "Invalid request");
     }
 
-    /** Maps IllegalArgumentException (e.g., invalid from/size) to 400. */
+    /** 400 for IllegalArgumentException (from/size etc.). */
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiError> handleIllegalArgument(IllegalArgumentException ex) {
         log.warn("400 IllegalArgument: {}", ex.getMessage());
@@ -86,5 +109,15 @@ public class GlobalExceptionHandler {
                 .timestamp(LocalDateTime.now())
                 .build();
         return ResponseEntity.status(status).body(body);
+    }
+
+    private void logAtLevel(HttpStatus status, String template, Object... args) {
+        if (status.is5xxServerError()) {
+            log.error(template, args);
+        } else if (status.is4xxClientError()) {
+            log.warn(template, args);
+        } else {
+            log.info(template, args);
+        }
     }
 }

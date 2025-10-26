@@ -4,12 +4,7 @@ import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import ru.practicum.ewm.category.dto.CategoryDto;
 import ru.practicum.ewm.category.model.Category;
-import ru.practicum.ewm.event.dto.EventFullDto;
-import ru.practicum.ewm.event.dto.EventShortDto;
-import ru.practicum.ewm.event.dto.LocationDto;
-import ru.practicum.ewm.event.dto.NewEventDto;
-import ru.practicum.ewm.event.dto.UpdateEventAdminRequest;
-import ru.practicum.ewm.event.dto.UpdateEventUserRequest;
+import ru.practicum.ewm.event.dto.*;
 import ru.practicum.ewm.event.model.Event;
 import ru.practicum.ewm.event.model.Location;
 import ru.practicum.ewm.user.dto.UserShortDto;
@@ -19,7 +14,7 @@ import ru.practicum.ewm.user.model.User;
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class EventMapper {
 
-    /** Creates an Event entity from DTO. */
+    /** Creates an Event entity from DTO. (DTO — примитивы, тут без null-плясок) */
     public static Event toEntity(NewEventDto dto, Category category, User initiator) {
         return Event.builder()
                 .annotation(dto.getAnnotation())
@@ -42,20 +37,12 @@ public final class EventMapper {
                 .id(e.getId())
                 .annotation(e.getAnnotation())
                 .title(e.getTitle())
-                .category(e.getCategory() == null ? null :
-                        CategoryDto.builder()
-                                .id(e.getCategory().getId())
-                                .name(e.getCategory().getName())
-                                .build())
-                .initiator(e.getInitiator() == null ? null :
-                        UserShortDto.builder()
-                                .id(e.getInitiator().getId())
-                                .name(e.getInitiator().getName())
-                                .build())
+                .category(toCategoryDto(e.getCategory()))
+                .initiator(toUserShortDto(e.getInitiator()))
                 .paid(e.isPaid())
                 .eventDate(e.getEventDate())
-                .views(views)
                 .confirmedRequests(e.getConfirmedRequests())
+                .views(views)
                 .build();
     }
 
@@ -66,27 +53,18 @@ public final class EventMapper {
                 .annotation(e.getAnnotation())
                 .description(e.getDescription())
                 .title(e.getTitle())
-                .category(e.getCategory() == null ? null :
-                        CategoryDto.builder()
-                                .id(e.getCategory().getId())
-                                .name(e.getCategory().getName())
-                                .build())
-                .initiator(e.getInitiator() == null ? null :
-                        UserShortDto.builder()
-                                .id(e.getInitiator().getId())
-                                .name(e.getInitiator().getName())
-                                .build())
+                .category(toCategoryDto(e.getCategory()))
+                .initiator(toUserShortDto(e.getInitiator()))
                 .location(toLocationDto(e.getLocation()))
                 .paid(e.isPaid())
                 .participantLimit(e.getParticipantLimit())
                 .requestModeration(e.isRequestModeration())
-                // DTO.state = String → отдаём enum name
-                .state(e.getState() == null ? null : e.getState().name())
+                .state(e.getState() != null ? e.getState().name() : null)
                 .eventDate(e.getEventDate())
                 .createdOn(e.getCreatedOn())
                 .publishedOn(e.getPublishedOn())
-                .views(views)
                 .confirmedRequests(e.getConfirmedRequests())
+                .views(views)
                 .build();
     }
 
@@ -135,6 +113,22 @@ public final class EventMapper {
     }
 
     // ---- helpers ----
+
+    private static CategoryDto toCategoryDto(Category c) {
+        return (c == null) ? null
+                : CategoryDto.builder()
+                .id(c.getId())
+                .name(c.getName())
+                .build();
+    }
+
+    private static UserShortDto toUserShortDto(User u) {
+        return (u == null) ? null
+                : UserShortDto.builder()
+                .id(u.getId())
+                .name(u.getName())
+                .build();
+    }
 
     private static Location toLocation(LocationDto d) {
         return (d == null) ? null

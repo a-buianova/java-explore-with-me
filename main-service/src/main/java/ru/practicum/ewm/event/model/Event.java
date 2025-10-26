@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 import ru.practicum.ewm.category.model.Category;
 import ru.practicum.ewm.user.model.User;
+
 import java.time.LocalDateTime;
 
 /** Event domain entity. */
@@ -61,6 +62,6 @@ public class Event {
 
     private LocalDateTime publishedOn;
 
-    @Column(nullable = false)
+    @Column(name = "confirmed_requests", nullable = false)
     private int confirmedRequests;
 }

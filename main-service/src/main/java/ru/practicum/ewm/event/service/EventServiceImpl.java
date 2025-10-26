@@ -14,11 +14,7 @@ import ru.practicum.ewm.common.exception.BadRequestException;
 import ru.practicum.ewm.common.exception.ConflictException;
 import ru.practicum.ewm.common.exception.NotFoundException;
 import ru.practicum.ewm.common.util.PageUtil;
-import ru.practicum.ewm.event.dto.EventFullDto;
-import ru.practicum.ewm.event.dto.EventShortDto;
-import ru.practicum.ewm.event.dto.NewEventDto;
-import ru.practicum.ewm.event.dto.UpdateEventAdminRequest;
-import ru.practicum.ewm.event.dto.UpdateEventUserRequest;
+import ru.practicum.ewm.event.dto.*;
 import ru.practicum.ewm.event.mapper.EventMapper;
 import ru.practicum.ewm.event.model.Event;
 import ru.practicum.ewm.event.model.EventState;
@@ -50,15 +46,13 @@ public class EventServiceImpl implements EventService {
     private final CategoryRepository categoryRepository;
     private final StatsClient statsClient;
 
-    /**
-     * Create a new event in PENDING state. Event date must be ≥ 2h from now.
-     */
+    /** Create a new event in PENDING state. Event date must be ≥ 2h from now (409 on violation). */
     @Override
     @Transactional
     public EventFullDto create(long userId, NewEventDto dto) {
         User initiator = getUserOrThrow(userId);
         Category category = getCategoryOrThrow(dto.getCategory());
-        validateEventDateAtLeast(dto.getEventDate(), 2);
+        validateEventDateAtLeastConflict(dto.getEventDate(), 2);
 
         Event entity = EventMapper.toEntity(dto, category, initiator);
         entity.setState(EventState.PENDING);
@@ -71,16 +65,17 @@ public class EventServiceImpl implements EventService {
         return EventMapper.toFullDto(saved, 0L);
     }
 
-    /**
-     * Update by initiator. Allowed only for PENDING or CANCELED.
-     * Supports SEND_TO_REVIEW / CANCEL_REVIEW via stateAction (String).
-     */
+    /** Update by initiator. Allowed only for PENDING or CANCELED. (400 on bad date) */
     @Override
     @Transactional
     public EventFullDto updateByInitiator(long userId, long eventId, UpdateEventUserRequest dto) {
         Event event = getOwnedEventOrThrow(userId, eventId);
         if (event.getState() != EventState.PENDING && event.getState() != EventState.CANCELED) {
             throw new ConflictException("Only pending or canceled events can be updated by initiator");
+        }
+
+        if (dto.getParticipantLimit() != null && dto.getParticipantLimit() < 0) {
+            throw new BadRequestException("participantLimit cannot be negative");
         }
 
         Category newCategory = (dto.getCategory() != null) ? getCategoryOrThrow(dto.getCategory()) : null;
@@ -98,16 +93,14 @@ public class EventServiceImpl implements EventService {
         }
 
         if (dto.getEventDate() != null) {
-            validateEventDateAtLeast(dto.getEventDate(), 2);
+            validateEventDateAtLeastBadRequest(dto.getEventDate(), 2);
         }
 
         Event saved = eventRepository.save(event);
         return EventMapper.toFullDto(saved, 0L);
     }
 
-    /**
-     * List initiator’s events with offset pagination.
-     */
+    /** List initiator’s events with offset pagination. */
     @Override
     public Page<EventShortDto> findByInitiator(long userId, int from, int size) {
         getUserOrThrow(userId);
@@ -116,21 +109,14 @@ public class EventServiceImpl implements EventService {
                 .map(e -> EventMapper.toShortDto(e, 0L));
     }
 
-    /**
-     * Get a single event owned by initiator.
-     */
+    /** Get a single event owned by initiator. */
     @Override
     public EventFullDto getByInitiator(long userId, long eventId) {
         Event event = getOwnedEventOrThrow(userId, eventId);
         return EventMapper.toFullDto(event, 0L);
     }
 
-    /**
-     * Public search: filters + pagination + sorting (EVENT_DATE/VIEWS).
-     * - Logs a hit to stats service.
-     * - Enriches results with view counters (unique=true).
-     * - Applies onlyAvailable (capacity-based) filter in-memory.
-     */
+    /** Public search: filters + pagination + sorting (EVENT_DATE/VIEWS). */
     @Override
     public Page<EventShortDto> searchPublic(
             String text,
@@ -144,11 +130,20 @@ public class EventServiceImpl implements EventService {
             int size,
             HttpServletRequest request
     ) {
+        String textParam = (text == null || text.isBlank()) ? "" : text;
+
+        if (sort != null && sort.isBlank()) sort = null;
+
         safeSendHit(request);
 
         LocalDateTime start = (rangeStart == null) ? LocalDateTime.now() : rangeStart;
-        if (rangeEnd != null && rangeEnd.isBefore(start)) {
+        LocalDateTime end   = (rangeEnd   == null) ? start : rangeEnd;
+        if (end.isBefore(start)) {
             throw new BadRequestException("end must be equal to or after start");
+        }
+
+        if (categories != null && categories.isEmpty()) {
+            categories = null;
         }
 
         Sort srt = Sort.unsorted();
@@ -161,21 +156,33 @@ public class EventServiceImpl implements EventService {
             if (upper.equals("EVENT_DATE")) {
                 srt = Sort.by(Sort.Direction.ASC, "eventDate");
             } else {
-                sortByViews = true; // sort by views after enrichment
+                sortByViews = true;
             }
         }
 
         var pageable = PageUtil.byFromSize(from, size, srt);
-        Page<Event> page = eventRepository.searchPublic(text, categories, paid, start, rangeEnd, pageable);
 
-        List<Event> content = page.getContent();
+        LocalDateTime endForDb    = (rangeEnd == null) ? start.plusYears(100) : rangeEnd;
+        LocalDateTime endForStats = (rangeEnd != null) ? rangeEnd : LocalDateTime.now(); // NOTE: 1) intervals for stats service are always 'live'
+
+        Page<Event> page = (categories == null)
+                ? eventRepository.searchPublicNoCats(textParam, paid, paid == null, start, endForDb, rangeEnd == null, pageable)
+                : eventRepository.searchPublicWithCats(textParam, categories, paid, paid == null, start, endForDb, rangeEnd == null, pageable);
+
+        List<Event> content = Optional.ofNullable(page.getContent()).orElseGet(List::of)
+                .stream()
+                .filter(Objects::nonNull)
+                .filter(e -> EventState.PUBLISHED.equals(e.getState())) // NOTE: 2) null-safe equals check
+                .collect(Collectors.toList());
+
         if (onlyAvailable) {
             content = content.stream()
-                    .filter(e -> e.getParticipantLimit() == 0 || e.getConfirmedRequests() < e.getParticipantLimit())
+                    .filter(e -> e.getParticipantLimit() == 0
+                            || e.getConfirmedRequests() < e.getParticipantLimit())
                     .collect(Collectors.toList());
         }
 
-        Map<Long, Long> viewsMap = fetchViewsFor(content, start, (rangeEnd == null ? LocalDateTime.now() : rangeEnd));
+        Map<Long, Long> viewsMap = fetchViewsFor(content, start, endForStats);
 
         if (sortByViews) {
             content.sort(Comparator.comparingLong((Event e) -> viewsMap.getOrDefault(e.getId(), 0L)).reversed());
@@ -188,23 +195,17 @@ public class EventServiceImpl implements EventService {
         return new PageImpl<>(mapped, pageable, page.getTotalElements());
     }
 
-    /**
-     * Public read: event must be PUBLISHED. Logs a hit and enriches views.
-     */
+    /** Public read: event must be PUBLISHED. Logs a hit and enriches views. */
     @Override
     public EventFullDto getPublicById(long eventId, HttpServletRequest request) {
         safeSendHit(request);
-
         Event event = eventRepository.findByIdAndState(eventId, EventState.PUBLISHED)
                 .orElseThrow(() -> new NotFoundException("Event not found or not published"));
-
         Map<Long, Long> views = fetchViewsFor(List.of(event), event.getCreatedOn(), LocalDateTime.now());
         return EventMapper.toFullDto(event, views.getOrDefault(eventId, 0L));
     }
 
-    /**
-     * Admin search with filters and date range validation.
-     */
+    /** Admin search with filters and date range validation. */
     @Override
     public Page<EventFullDto> searchAdmin(
             Collection<Long> users,
@@ -220,19 +221,32 @@ public class EventServiceImpl implements EventService {
         }
         var pageable = PageUtil.byFromSize(from, size, Sort.by(Sort.Direction.DESC, "createdOn"));
 
+        if (users != null && users.isEmpty()) users = null;
+        if (categories != null && categories.isEmpty()) categories = null;
+
         Collection<EventState> stateEnums = parseStates(states);
-        Page<Event> page = eventRepository.searchAdmin(users, stateEnums, categories, rangeStart, rangeEnd, pageable);
+        if (stateEnums != null && stateEnums.isEmpty()) stateEnums = null;
+
+        Page<Event> page = eventRepository.searchAdmin(
+                users, users == null,
+                stateEnums, stateEnums == null,
+                categories, categories == null,
+                rangeStart, rangeStart == null,
+                rangeEnd, rangeEnd == null,
+                pageable);
         return page.map(e -> EventMapper.toFullDto(e, 0L));
     }
 
-    /**
-     * Admin patch + moderation. Supports PUBLISH_EVENT / REJECT_EVENT.
-     */
+    /** Admin patch + moderation. Supports PUBLISH_EVENT / REJECT_EVENT. */
     @Override
     @Transactional
     public EventFullDto updateByAdmin(long eventId, UpdateEventAdminRequest dto) {
         Event event = eventRepository.findById(eventId)
                 .orElseThrow(() -> new NotFoundException("Event not found"));
+
+        if (dto.getParticipantLimit() != null && dto.getParticipantLimit() < 0) {
+            throw new BadRequestException("participantLimit cannot be negative");
+        }
 
         Category newCategory = (dto.getCategory() != null) ? getCategoryOrThrow(dto.getCategory()) : null;
         EventMapper.applyAdminPatch(event, dto, newCategory);
@@ -267,24 +281,18 @@ public class EventServiceImpl implements EventService {
         return EventMapper.toFullDto(saved, 0L);
     }
 
-    // helpers
+    // ===== helpers =====
 
-    /**
-     * Sends a hit to the statistics service.
-     * Fails silently if stats service is unavailable.
-     */
     private void safeSendHit(HttpServletRequest request) {
+        if (request == null) return;
         try {
             statsClient.sendHit(request);
-        } catch (Exception ex) {
+        } catch (Throwable ex) {
             log.warn("stats sendHit failed: {}", ex.getMessage());
         }
     }
 
-    /**
-     * Fetches unique view counts for given events within a time range.
-     * Returns zeroes for missing entries or errors.
-     */
+    /** Safe view aggregation */
     private Map<Long, Long> fetchViewsFor(Collection<Event> events, LocalDateTime start, LocalDateTime end) {
         if (events == null || events.isEmpty()) return Collections.emptyMap();
 
@@ -297,18 +305,23 @@ public class EventServiceImpl implements EventService {
         try {
             List<ViewStats> stats = statsClient.getStats(start, end, uris, true);
             Map<Long, Long> map = new HashMap<>();
+
             if (stats != null) {
                 for (ViewStats vs : stats) {
+                    if (vs == null || vs.getUri() == null) continue;
                     Long id = extractId(vs.getUri());
-                    if (id != null) map.merge(id, vs.getHits(), Long::sum);
+                    if (id == null) continue;
+                    long hits = (vs.getHits() == null) ? 0L : vs.getHits();
+                    map.merge(id, hits, Long::sum);
                 }
             }
+
             for (String u : uris) {
                 Long id = extractId(u);
                 if (id != null) map.putIfAbsent(id, 0L);
             }
             return map;
-        } catch (Exception ex) {
+        } catch (Throwable ex) {
             log.warn("stats getStats failed: {}", ex.getMessage());
             Map<Long, Long> fallback = new HashMap<>();
             for (Event e : events) if (e.getId() != null) fallback.put(e.getId(), 0L);
@@ -316,24 +329,17 @@ public class EventServiceImpl implements EventService {
         }
     }
 
-    /**
-     * Extracts numeric event ID from a URI like "/events/{id}".
-     */
     private static Long extractId(String uri) {
         if (uri == null) return null;
         String[] p = uri.split("/");
         if (p.length >= 3 && "events".equals(p[1])) {
             try {
                 return Long.parseLong(p[2]);
-            } catch (NumberFormatException ignored) {
-            }
+            } catch (NumberFormatException ignored) { }
         }
         return null;
     }
 
-    /**
-     * Parses a list of string state names into EventState enums.
-     */
     private Collection<EventState> parseStates(Collection<String> states) {
         if (states == null) return null;
         try {
@@ -346,25 +352,16 @@ public class EventServiceImpl implements EventService {
         }
     }
 
-    /**
-     * Fetches user or throws 404 if missing.
-     */
     private User getUserOrThrow(long userId) {
         return userRepository.findById(userId)
                 .orElseThrow(() -> new NotFoundException("User not found: " + userId));
     }
 
-    /**
-     * Fetches category or throws 404 if missing.
-     */
     private Category getCategoryOrThrow(long categoryId) {
         return categoryRepository.findById(categoryId)
                 .orElseThrow(() -> new NotFoundException("Category not found: " + categoryId));
     }
 
-    /**
-     * Fetches event owned by given user, throws 404 otherwise.
-     */
     private Event getOwnedEventOrThrow(long userId, long eventId) {
         Event event = eventRepository.findById(eventId)
                 .orElseThrow(() -> new NotFoundException("Event not found: " + eventId));
@@ -374,28 +371,30 @@ public class EventServiceImpl implements EventService {
         return event;
     }
 
-    /**
-     * Ensures eventDate ≥ now + {hours}.
-     */
-    private void validateEventDateAtLeast(LocalDateTime eventDate, int hours) {
-        if (eventDate == null) throw new BadRequestException("eventDate must not be null");
+    private void validateEventDateAtLeastConflict(LocalDateTime eventDate, int hours) {
+        if (eventDate == null) {
+            throw new ConflictException("Event date must not be null");
+        }
+        if (eventDate.isBefore(LocalDateTime.now().plusHours(hours))) {
+            throw new ConflictException("Event date must be at least " + hours + " hours from now");
+        }
+    }
+
+    private void validateEventDateAtLeastBadRequest(LocalDateTime eventDate, int hours) {
+        if (eventDate == null) {
+            throw new BadRequestException("eventDate must not be null");
+        }
         if (eventDate.isBefore(LocalDateTime.now().plusHours(hours))) {
             throw new BadRequestException("eventDate must be at least " + hours + " hours from now");
         }
     }
 
-    /**
-     * Ensures eventDate is not in the past.
-     */
     private void validateEventDateNotPast(LocalDateTime eventDate) {
         if (eventDate.isBefore(LocalDateTime.now())) {
             throw new BadRequestException("eventDate must not be in the past");
         }
     }
 
-    /**
-     * Parses stateAction string (SEND_TO_REVIEW, etc.) to enum.
-     */
     private StateAction parseStateAction(String raw) {
         if (raw == null) return null;
         try {
@@ -405,9 +404,6 @@ public class EventServiceImpl implements EventService {
         }
     }
 
-    /**
-     * Overload for DTOs already containing enum.
-     */
     private StateAction parseStateAction(StateAction raw) {
         return raw;
     }

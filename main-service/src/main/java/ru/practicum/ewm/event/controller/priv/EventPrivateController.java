@@ -11,6 +11,7 @@ import ru.practicum.ewm.event.dto.*;
 import ru.practicum.ewm.event.service.EventService;
 
 import java.util.Collection;
+import java.util.List;
 
 /**
  * Private API for event initiators (authenticated users).
@@ -50,7 +51,8 @@ public class EventPrivateController {
     public Collection<EventShortDto> listMine(@PathVariable long userId,
                                               @RequestParam(defaultValue = "0") @PositiveOrZero int from,
                                               @RequestParam(defaultValue = "10") @Positive int size) {
-        return service.findByInitiator(userId, from, size).getContent();
+        var page = service.findByInitiator(userId, from, size);
+        return page != null ? page.getContent() : List.of();
     }
 
     /** Returns detailed info about one of the user’s events. */
