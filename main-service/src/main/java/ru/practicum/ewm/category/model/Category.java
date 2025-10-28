@@ -5,9 +5,7 @@ import lombok.*;
 
 /** Entity representing an event category. */
 @Entity
-@Table(name = "categories", uniqueConstraints = {
-        @UniqueConstraint(columnNames = "name", name = "uk_category_name")
-})
+@Table(name = "categories")
 @Getter
 @Setter
 @NoArgsConstructor
@@ -19,6 +17,7 @@ public class Category {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /** Category name must be unique and non-null (max 50 chars). */
     @Column(nullable = false, length = 50, unique = true)
     private String name;
 }

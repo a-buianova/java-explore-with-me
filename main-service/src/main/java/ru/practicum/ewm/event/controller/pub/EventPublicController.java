@@ -5,23 +5,18 @@ import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.PositiveOrZero;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpStatus;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 import ru.practicum.ewm.event.dto.EventFullDto;
 import ru.practicum.ewm.event.dto.EventShortDto;
+import ru.practicum.ewm.event.dto.PublicEventSearchRequest;
 import ru.practicum.ewm.event.service.EventService;
 
 import java.time.LocalDateTime;
-import java.util.Collection;
 import java.util.List;
 
-/**
- * Public API for browsing published events.
- * <p>
- * Endpoints:
- * - GET /events — search and filter published events
- * - GET /events/{eventId} — get full details of a published event
- */
 @RestController
 @RequestMapping("/events")
 @RequiredArgsConstructor
@@ -46,21 +41,25 @@ public class EventPublicController {
             @RequestParam(defaultValue = "10") @Positive int size,
             HttpServletRequest request
     ) {
+        PublicEventSearchRequest req = PublicEventSearchRequest.builder()
+                .text(text)
+                .categories(categories)
+                .paid(paid)
+                .rangeStart(rangeStart)
+                .rangeEnd(rangeEnd)
+                .onlyAvailable(onlyAvailable)
+                .sort(sort)
+                .from(from)
+                .size(size)
+                .build();
 
-        Collection<Long> normalizedCats = (categories == null || categories.isEmpty()) ? null : categories;
+        // Базовая валидация диапазона дат
+        if (req.getRangeStart() != null && req.getRangeEnd() != null
+                && req.getRangeEnd().isBefore(req.getRangeStart())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "rangeEnd must be after rangeStart");
+        }
 
-        return service.searchPublic(
-                text,
-                normalizedCats,
-                paid,
-                rangeStart,
-                rangeEnd,
-                onlyAvailable,
-                sort,
-                from,
-                size,
-                request
-        ).getContent();
+        return service.searchPublic(req, request).getContent();
     }
 
     /** Returns detailed information about a specific published event. */

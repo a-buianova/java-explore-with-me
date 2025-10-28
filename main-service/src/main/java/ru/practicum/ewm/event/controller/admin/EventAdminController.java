@@ -9,6 +9,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
+import ru.practicum.ewm.event.dto.AdminEventSearchRequest;
 import ru.practicum.ewm.event.dto.EventFullDto;
 import ru.practicum.ewm.event.dto.UpdateEventAdminRequest;
 import ru.practicum.ewm.event.service.EventService;
@@ -25,7 +26,7 @@ public class EventAdminController {
 
     private final EventService service;
 
-    /** Returns events by filters: users, states, categories, date range, pagination. */
+    /** Returns events by filters (users, states, categories, date range) with offset pagination. */
     @GetMapping
     public Collection<EventFullDto> searchAdmin(
             @RequestParam(required = false) List<Long> users,
@@ -38,10 +39,30 @@ public class EventAdminController {
             @RequestParam(defaultValue = "0") @PositiveOrZero int from,
             @RequestParam(defaultValue = "10") @Positive int size
     ) {
-        if (rangeStart != null && rangeEnd != null && rangeEnd.isBefore(rangeStart)) {
+        AdminEventSearchRequest req = new AdminEventSearchRequest();
+        req.setUsers(users);
+        req.setStates(states);
+        req.setCategories(categories);
+        req.setRangeStart(rangeStart);
+        req.setRangeEnd(rangeEnd);
+        req.setFrom(from);
+        req.setSize(size);
+
+        if (req.getRangeStart() != null && req.getRangeEnd() != null
+                && req.getRangeEnd().isBefore(req.getRangeStart())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "rangeEnd must be after rangeStart");
         }
-        var page = service.searchAdmin(users, states, categories, rangeStart, rangeEnd, from, size);
+
+        var page = service.searchAdmin(
+                req.getUsers(),
+                req.getStates(),
+                req.getCategories(),
+                req.getRangeStart(),
+                req.getRangeEnd(),
+                req.getFrom(),
+                req.getSize()
+        );
+
         return page != null ? page.getContent() : List.of();
     }
 

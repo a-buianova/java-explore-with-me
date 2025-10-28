@@ -3,14 +3,18 @@ package ru.practicum.stats.client;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 import ru.practicum.stats.dto.EndpointHitDto;
 import ru.practicum.stats.dto.ViewStats;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -19,6 +23,7 @@ import java.util.List;
  * RestTemplate-based implementation of {@link StatsClient}.
  */
 @Slf4j
+@Component
 @RequiredArgsConstructor
 public class StatsClientImpl implements StatsClient {
 
@@ -27,6 +32,17 @@ public class StatsClientImpl implements StatsClient {
     private final RestTemplate restTemplate;
     private final String baseUrl;
     private final String appName;
+
+    public StatsClientImpl(RestTemplateBuilder builder,
+                           @Value("${stats-server.url:http://stats-server:9090}") String baseUrl,
+                           @Value("${app.name:ewm-main-service}") String appName) {
+        this.restTemplate = builder
+                .setConnectTimeout(Duration.ofSeconds(2))
+                .setReadTimeout(Duration.ofSeconds(5))
+                .build();
+        this.baseUrl = baseUrl;
+        this.appName = appName;
+    }
 
     @Override
     public void sendHit(HttpServletRequest request) {

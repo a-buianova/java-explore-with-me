@@ -25,9 +25,6 @@ public interface EventRepository extends JpaRepository<Event, Long> {
 
     /**
      * Public search for published events when categories filter is NOT provided.
-     * IMPORTANT: we use ":text = ''" check instead of NULL and avoid COALESCE
-     * to prevent Postgres error "could not determine data type of parameter".
-     * We use boolean flags (like in stats-server) instead of "IS NULL" for nullable parameters.
      */
     @Query("""
         SELECT e
@@ -52,8 +49,6 @@ public interface EventRepository extends JpaRepository<Event, Long> {
 
     /**
      * Public search for published events when categories filter IS provided.
-     * We assume that categories are passed only when the list is NOT empty.
-     * We use boolean flags (like in stats-server) instead of "IS NULL" for nullable parameters.
      */
     @Query("""
         SELECT e
@@ -80,8 +75,6 @@ public interface EventRepository extends JpaRepository<Event, Long> {
 
     /**
      * Admin search: supports filtering by user IDs, event states, categories and date range.
-     * We use boolean flags (like in stats-server) instead of "IS NULL" for nullable parameters
-     * to avoid "could not determine data type of parameter" errors in PostgreSQL.
      */
     @Query("""
         SELECT e FROM Event e

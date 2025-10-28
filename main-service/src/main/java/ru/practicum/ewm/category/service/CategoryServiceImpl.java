@@ -2,6 +2,7 @@ package ru.practicum.ewm.category.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,13 +40,13 @@ public class CategoryServiceImpl implements CategoryService {
     @Override
     @Transactional
     public CategoryDto create(NewCategoryDto dto) {
-        if (categoryRepository.existsByNameIgnoreCase(dto.getName())) {
+        try {
+            Category saved = categoryRepository.save(CategoryMapper.toEntity(dto));
+            log.info("Created category id={}, name='{}'", saved.getId(), saved.getName());
+            return CategoryMapper.toDto(saved);
+        } catch (DataIntegrityViolationException ex) {
             throw new ConflictException("Category name must be unique");
         }
-
-        Category saved = categoryRepository.save(CategoryMapper.toEntity(dto));
-        log.info("Created category id={}, name='{}'", saved.getId(), saved.getName());
-        return CategoryMapper.toDto(saved);
     }
 
     /**
@@ -83,16 +84,14 @@ public class CategoryServiceImpl implements CategoryService {
         Category category = categoryRepository.findById(catId)
                 .orElseThrow(() -> new NotFoundException("Category not found"));
 
-        boolean nameConflict = categoryRepository.existsByNameIgnoreCase(dto.getName())
-                && !dto.getName().equalsIgnoreCase(category.getName());
-        if (nameConflict) {
+        category.setName(dto.getName());
+        try {
+            Category updated = categoryRepository.save(category);
+            log.info("Updated category id={} name='{}'", updated.getId(), updated.getName());
+            return CategoryMapper.toDto(updated);
+        } catch (DataIntegrityViolationException ex) {
             throw new ConflictException("Category name must be unique");
         }
-
-        category.setName(dto.getName());
-        Category updated = categoryRepository.save(category);
-        log.info("Updated category id={} name='{}'", updated.getId(), updated.getName());
-        return CategoryMapper.toDto(updated);
     }
 
     /**

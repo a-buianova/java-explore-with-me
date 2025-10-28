@@ -46,6 +46,50 @@ public class EventServiceImpl implements EventService {
     private final CategoryRepository categoryRepository;
     private final StatsClient statsClient;
 
+    /**
+     * Delegates public event search to existing implementation, using a structured DTO instead of individual params.
+     */
+    @Override
+    public Page<EventShortDto> searchPublic(PublicEventSearchRequest req, HttpServletRequest request) {
+        Collection<Long> cats = (req.getCategories() == null || req.getCategories().isEmpty())
+                ? null : req.getCategories();
+
+        return searchPublic(
+                req.getText(),
+                cats,
+                req.getPaid(),
+                req.getRangeStart(),
+                req.getRangeEnd(),
+                req.isOnlyAvailable(),
+                req.getSort(),
+                req.getFrom(),
+                req.getSize(),
+                request
+        );
+    }
+
+
+    /**
+     * Delegates admin event search to existing logic, using a structured DTO instead of raw parameters.
+     */
+    @Override
+    public Page<EventFullDto> searchAdmin(AdminEventSearchRequest req) {
+        Collection<Long> users = (req.getUsers() == null || req.getUsers().isEmpty()) ? null : req.getUsers();
+        Collection<String> states = (req.getStates() == null || req.getStates().isEmpty()) ? null : req.getStates();
+        Collection<Long> categories = (req.getCategories() == null || req.getCategories().isEmpty())
+                ? null : req.getCategories();
+
+        return searchAdmin(
+                users,
+                states,
+                categories,
+                req.getRangeStart(),
+                req.getRangeEnd(),
+                req.getFrom(),
+                req.getSize()
+        );
+    }
+
     /** Create a new event in PENDING state. Event date must be ≥ 2h from now (409 on violation). */
     @Override
     @Transactional
@@ -130,8 +174,7 @@ public class EventServiceImpl implements EventService {
             int size,
             HttpServletRequest request
     ) {
-        String textParam = (text == null || text.isBlank()) ? "" : text;
-
+        String textParam = (text == null || text.isBlank()) ? "" : text.trim();
         if (sort != null && sort.isBlank()) sort = null;
 
         safeSendHit(request);
@@ -172,7 +215,6 @@ public class EventServiceImpl implements EventService {
         List<Event> content = Optional.ofNullable(page.getContent()).orElseGet(List::of)
                 .stream()
                 .filter(Objects::nonNull)
-                .filter(e -> EventState.PUBLISHED.equals(e.getState())) // NOTE: 2) null-safe equals check
                 .collect(Collectors.toList());
 
         if (onlyAvailable) {
@@ -201,7 +243,11 @@ public class EventServiceImpl implements EventService {
         safeSendHit(request);
         Event event = eventRepository.findByIdAndState(eventId, EventState.PUBLISHED)
                 .orElseThrow(() -> new NotFoundException("Event not found or not published"));
-        Map<Long, Long> views = fetchViewsFor(List.of(event), event.getCreatedOn(), LocalDateTime.now());
+
+        LocalDateTime from = Optional.ofNullable(event.getPublishedOn())
+                .orElse(event.getCreatedOn());
+
+        Map<Long, Long> views = fetchViewsFor(List.of(event), from, LocalDateTime.now());
         return EventMapper.toFullDto(event, views.getOrDefault(eventId, 0L));
     }
 
