@@ -1,6 +1,14 @@
-FROM openjdk:21-jdk-slim
+FROM eclipse-temurin:21-jre-jammy
 
-LABEL maintainer="abuianova" \
-      description="Placeholder Dockerfile for main-service (stage 1)"
+LABEL maintainer="abuianova"
 
-CMD ["sh", "-c", "sleep infinity"]
+ENV TZ=UTC
+
+WORKDIR /app
+
+ARG JAR_FILE=target/main-service-0.0.1-SNAPSHOT.jar
+COPY ${JAR_FILE} app.jar
+
+EXPOSE 8080
+
+ENTRYPOINT ["java", "-jar", "app.jar"]

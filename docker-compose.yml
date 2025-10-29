@@ -1,3 +1,5 @@
+version: "3.9"
+
 services:
   stats-db:
     image: postgres:16.1
@@ -6,6 +8,7 @@ services:
       POSTGRES_DB: ${STATS_DB_NAME:-stats}
       POSTGRES_USER: ${STATS_DB_USER:-admin}
       POSTGRES_PASSWORD: ${STATS_DB_PASSWORD:-admin}
+      TZ: UTC
     ports:
       - "6541:5432"
     volumes:
@@ -29,8 +32,15 @@ services:
       SPRING_DATASOURCE_URL: ${STATS_DATASOURCE_URL:-jdbc:postgresql://stats-db:5432/${STATS_DB_NAME:-stats}}
       SPRING_DATASOURCE_USERNAME: ${STATS_DB_USER:-admin}
       SPRING_DATASOURCE_PASSWORD: ${STATS_DB_PASSWORD:-admin}
+      TZ: UTC
     ports:
       - "9090:9090"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
     restart: unless-stopped
 
   ewm-db:
@@ -40,6 +50,7 @@ services:
       POSTGRES_DB: ${EWM_DB_NAME:-ewm}
       POSTGRES_USER: ${EWM_DB_USER:-admin}
       POSTGRES_PASSWORD: ${EWM_DB_PASSWORD:-admin}
+      TZ: UTC
     ports:
       - "6542:5432"
     volumes:
@@ -52,17 +63,31 @@ services:
     restart: unless-stopped
 
   ewm-service:
-    build: ./main-service
+    build:
+      context: ./main-service
+      dockerfile: Dockerfile
     container_name: ewm-service
     depends_on:
       ewm-db:
         condition: service_healthy
-    ports:
-      - "8080:8080"
+      stats-server:
+        condition: service_healthy
     environment:
       SPRING_DATASOURCE_URL: ${EWM_DATASOURCE_URL:-jdbc:postgresql://ewm-db:5432/${EWM_DB_NAME:-ewm}}
       SPRING_DATASOURCE_USERNAME: ${EWM_DB_USER:-admin}
       SPRING_DATASOURCE_PASSWORD: ${EWM_DB_PASSWORD:-admin}
+      # важно для StatsClientConfig
+      stats-server.url: ${STATS_SERVER_URL:-http://stats-server:9090}
+      app.name: ${APP_NAME:-ewm-main-service}
+      TZ: UTC
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
     restart: unless-stopped
 
 volumes:
