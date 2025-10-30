@@ -95,6 +95,36 @@
 							]
 						}
 					}]
+				},
+				{
+					"name": "Verify event is PUBLISHED (admin search)",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{base_url}}/admin/events?users={{user_id}}&states=PUBLISHED&categories={{category_id}}&from=0&size=50",
+							"host": ["{{base_url}}"],
+							"path": ["admin","events"],
+							"query": [
+								{ "key":"users","value":"{{user_id}}" },
+								{ "key":"states","value":"PUBLISHED" },
+								{ "key":"categories","value":"{{category_id}}" },
+								{ "key":"from","value":"0" },
+								{ "key":"size","value":"50" }
+							]
+						}
+					},
+					"event": [{
+						"listen": "test",
+						"script": {
+							"type": "text/javascript",
+							"exec": [
+								"pm.test('200 OK', () => pm.response.code === 200);",
+								"const list = pm.response.json();",
+								"const ev = list.find(x => x && x.id === Number(pm.environment.get('event_id')));",
+								"pm.expect(ev, 'event must be PUBLISHED for public reads').to.exist;"
+							]
+						}
+					}]
 				}
 			]
 		},
@@ -174,7 +204,7 @@
 						"script": {
 							"type": "text/javascript",
 							"exec": [
-								"pm.test('200 OK', () => pm.response.code === 200);",
+								"pm.test('200 OK', () => { if (pm.response.code !== 200) console.log('ERR BODY:', pm.response.text()); pm.expect(pm.response.code).to.eql(200); });",
 								"const ev = pm.response.json();",
 								"pm.expect(ev).to.have.property('commentCount');",
 								"pm.expect(ev.commentCount).to.eql(1);",
@@ -203,10 +233,11 @@
 						"script": {
 							"type": "text/javascript",
 							"exec": [
-								"pm.test('200 OK', () => pm.response.code === 200);",
+								"pm.test('200 OK', () => { if (pm.response.code !== 200) console.log('ERR BODY:', pm.response.text()); pm.expect(pm.response.code).to.eql(200); });",
 								"const list = pm.response.json();",
 								"pm.expect(Array.isArray(list)).to.be.true;",
-								"const ev = list.find(x => x && x.id === Number(pm.environment.get('event_id')));",
+								"const id = Number(pm.environment.get('event_id'));",
+								"const ev = list.find(x => x && x.id === id);",
 								"pm.expect(ev, 'event must be in search list').to.exist;",
 								"pm.expect(ev).to.have.property('commentCount');",
 								"pm.expect(ev.commentCount).to.eql(1);"
@@ -265,7 +296,7 @@
 						"script": {
 							"type": "text/javascript",
 							"exec": [
-								"pm.test('200 OK', () => pm.response.code === 200);",
+								"pm.test('200 OK', () => { if (pm.response.code !== 200) console.log('ERR BODY:', pm.response.text()); pm.expect(pm.response.code).to.eql(200); });",
 								"const ev = pm.response.json();",
 								"pm.expect(ev).to.have.property('commentCount');",
 								"pm.environment.set('cc_before_delete', ev.commentCount);"
@@ -286,7 +317,7 @@
 						"script": {
 							"type": "text/javascript",
 							"exec": [
-								"pm.test('200 OK', () => pm.response.code === 200);",
+								"pm.test('200 OK', () => { if (pm.response.code !== 200) console.log('ERR BODY:', pm.response.text()); pm.expect(pm.response.code).to.eql(200); });",
 								"const ev = pm.response.json();",
 								"pm.expect(ev).to.have.property('commentCount');",
 								"pm.expect(ev.commentCount).to.eql(0);"
@@ -346,7 +377,7 @@
 						"script": {
 							"type": "text/javascript",
 							"exec": [
-								"pm.test('200 OK', () => pm.response.code === 200);",
+								"pm.test('200 OK', () => { if (pm.response.code !== 200) console.log('ERR BODY:', pm.response.text()); pm.expect(pm.response.code).to.eql(200); });",
 								"const ev = pm.response.json();",
 								"pm.expect(ev).to.have.property('commentCount');",
 								"pm.expect(ev.commentCount).to.eql(1);"
@@ -372,7 +403,7 @@
 						"script": {
 							"type": "text/javascript",
 							"exec": [
-								"pm.test('200 OK', () => pm.response.code === 200);",
+								"pm.test('200 OK', () => { if (pm.response.code !== 200) console.log('ERR BODY:', pm.response.text()); pm.expect(pm.response.code).to.eql(200); });",
 								"const ev = pm.response.json();",
 								"pm.expect(ev).to.have.property('commentCount');",
 								"pm.expect(ev.commentCount).to.eql(2);"
@@ -422,7 +453,7 @@
 						"script": {
 							"type": "text/javascript",
 							"exec": [
-								"pm.test('200 OK', () => pm.response.code === 200);",
+								"pm.test('200 OK', () => { if (pm.response.code !== 200) console.log('ERR BODY:', pm.response.text()); pm.expect(pm.response.code).to.eql(200); });",
 								"const ev = pm.response.json();",
 								"pm.expect(ev).to.have.property('commentCount');",
 								"pm.expect(ev.commentCount).to.eql(2);"
