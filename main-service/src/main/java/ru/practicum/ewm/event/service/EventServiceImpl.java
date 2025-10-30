@@ -20,6 +20,8 @@ import ru.practicum.ewm.event.model.Event;
 import ru.practicum.ewm.event.model.EventState;
 import ru.practicum.ewm.event.model.StateAction;
 import ru.practicum.ewm.event.repository.EventRepository;
+import ru.practicum.ewm.comments.repository.CommentRepository;
+import ru.practicum.ewm.comments.model.CommentState;
 import ru.practicum.ewm.user.model.User;
 import ru.practicum.ewm.user.repository.UserRepository;
 import ru.practicum.stats.client.StatsClient;
@@ -45,6 +47,7 @@ public class EventServiceImpl implements EventService {
     private final UserRepository userRepository;
     private final CategoryRepository categoryRepository;
     private final StatsClient statsClient;
+    private final CommentRepository commentRepository;
 
     /**
      * Delegates public event search to existing implementation, using a structured DTO instead of individual params.
@@ -231,7 +234,10 @@ public class EventServiceImpl implements EventService {
         }
 
         List<EventShortDto> mapped = content.stream()
-                .map(e -> EventMapper.toShortDto(e, viewsMap.getOrDefault(e.getId(), 0L)))
+                .map(e -> {
+                    long commentCount = commentRepository.countByEvent_IdAndState(e.getId(), CommentState.PUBLISHED); // CHANGE
+                    return EventMapper.toShortDto(e, viewsMap.getOrDefault(e.getId(), 0L), commentCount);             // CHANGE
+                })
                 .toList();
 
         return new PageImpl<>(mapped, pageable, page.getTotalElements());
@@ -248,7 +254,8 @@ public class EventServiceImpl implements EventService {
                 .orElse(event.getCreatedOn());
 
         Map<Long, Long> views = fetchViewsFor(List.of(event), from, LocalDateTime.now());
-        return EventMapper.toFullDto(event, views.getOrDefault(eventId, 0L));
+        long commentCount = commentRepository.countByEvent_IdAndState(eventId, CommentState.PUBLISHED);
+        return EventMapper.toFullDto(event, views.getOrDefault(eventId, 0L), commentCount);
     }
 
     /** Admin search with filters and date range validation. */

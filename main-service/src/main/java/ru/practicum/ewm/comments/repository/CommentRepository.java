@@ -20,4 +20,7 @@ public interface CommentRepository extends JpaRepository<Comment, Long> {
 
     /** Returns comments by author (any state). */
     Page<Comment> findByAuthor_Id(Long authorId, Pageable pageable);
+
+    /** Counts comments for an event by moderation state. */
+    long countByEvent_IdAndState(Long eventId, CommentState state);
 }
