@@ -23,7 +23,4 @@ public class EventShortDto {
     private LocalDateTime eventDate;
     private long confirmedRequests;
     private long views;
-
-    /** Number of published comments for this event (public integration). */
-    private long commentCount;
 }

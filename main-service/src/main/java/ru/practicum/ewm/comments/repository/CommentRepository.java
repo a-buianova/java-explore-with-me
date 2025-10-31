@@ -3,8 +3,13 @@ package ru.practicum.ewm.comments.repository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import ru.practicum.ewm.comments.model.Comment;
 import ru.practicum.ewm.comments.model.CommentState;
+
+import java.util.Collection;
+import java.util.List;
 
 /**
  * JPA repository for comment entities.
@@ -23,4 +28,14 @@ public interface CommentRepository extends JpaRepository<Comment, Long> {
 
     /** Counts comments for an event by moderation state. */
     long countByEvent_IdAndState(Long eventId, CommentState state);
+
+    /** Batch count by event ids and state (to avoid N+1). */
+    @Query("""
+           SELECT c.event.id, COUNT(c)
+           FROM Comment c
+           WHERE c.state = :state AND c.event.id IN :eventIds
+           GROUP BY c.event.id
+           """)
+    List<Object[]> countByEventIdsAndState(@Param("eventIds") Collection<Long> eventIds,
+                                           @Param("state") CommentState state);
 }

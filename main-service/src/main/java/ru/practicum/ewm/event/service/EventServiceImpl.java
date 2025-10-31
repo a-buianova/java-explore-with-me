@@ -233,11 +233,19 @@ public class EventServiceImpl implements EventService {
             content.sort(Comparator.comparingLong((Event e) -> viewsMap.getOrDefault(e.getId(), 0L)).reversed());
         }
 
+        List<Long> eventIds = content.stream()
+                .map(Event::getId)
+                .filter(Objects::nonNull)
+                .toList();
+
+        List<Object[]> rows = commentRepository.countByEventIdsAndState(eventIds, CommentState.PUBLISHED);
+        Map<Long, Long> commentCounts = new HashMap<>();
+        for (Object[] row : rows) {
+            commentCounts.put((Long) row[0], (Long) row[1]);
+        }
+
         List<EventShortDto> mapped = content.stream()
-                .map(e -> {
-                    long commentCount = commentRepository.countByEvent_IdAndState(e.getId(), CommentState.PUBLISHED); // CHANGE
-                    return EventMapper.toShortDto(e, viewsMap.getOrDefault(e.getId(), 0L), commentCount);             // CHANGE
-                })
+                .map(e -> EventMapper.toShortDto(e, viewsMap.getOrDefault(e.getId(), 0L)))
                 .toList();
 
         return new PageImpl<>(mapped, pageable, page.getTotalElements());

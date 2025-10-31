@@ -33,11 +33,6 @@ public final class EventMapper {
 
     /** Converts Event entity to short DTO with provided views. */
     public static EventShortDto toShortDto(Event e, long views) {
-        return toShortDto(e, views, 0L);
-    }
-
-    /** Converts Event entity to short DTO with provided views and commentCount. */
-    public static EventShortDto toShortDto(Event e, long views, long commentCount) { // CHANGE
         return EventShortDto.builder()
                 .id(e.getId())
                 .annotation(e.getAnnotation())
@@ -48,7 +43,6 @@ public final class EventMapper {
                 .eventDate(e.getEventDate())
                 .confirmedRequests(e.getConfirmedRequests())
                 .views(views)
-                .commentCount(commentCount)
                 .build();
     }
 
@@ -58,7 +52,7 @@ public final class EventMapper {
     }
 
     /** Converts Event entity to full DTO with provided views and commentCount. */
-    public static EventFullDto toFullDto(Event e, long views, long commentCount) { // CHANGE
+    public static EventFullDto toFullDto(Event e, long views, long commentCount) {
         return EventFullDto.builder()
                 .id(e.getId())
                 .annotation(e.getAnnotation())
