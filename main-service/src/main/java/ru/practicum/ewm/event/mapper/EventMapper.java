@@ -14,7 +14,7 @@ import ru.practicum.ewm.user.model.User;
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class EventMapper {
 
-    /** Creates an Event entity from DTO. (DTO — примитивы, тут без null-плясок) */
+    /** Creates an Event entity from DTO.*/
     public static Event toEntity(NewEventDto dto, Category category, User initiator) {
         return Event.builder()
                 .annotation(dto.getAnnotation())
@@ -48,6 +48,11 @@ public final class EventMapper {
 
     /** Converts Event entity to full DTO with provided views. */
     public static EventFullDto toFullDto(Event e, long views) {
+        return toFullDto(e, views, 0L);
+    }
+
+    /** Converts Event entity to full DTO with provided views and commentCount. */
+    public static EventFullDto toFullDto(Event e, long views, long commentCount) {
         return EventFullDto.builder()
                 .id(e.getId())
                 .annotation(e.getAnnotation())
@@ -65,6 +70,7 @@ public final class EventMapper {
                 .publishedOn(e.getPublishedOn())
                 .confirmedRequests(e.getConfirmedRequests())
                 .views(views)
+                .commentCount(commentCount)
                 .build();
     }
 

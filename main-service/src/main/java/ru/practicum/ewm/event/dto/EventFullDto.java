@@ -32,4 +32,7 @@ public class EventFullDto {
     private LocalDateTime publishedOn;
     private long confirmedRequests;
     private long views;
+
+    /** Number of published comments for this event (public integration). */
+    private long commentCount;
 }

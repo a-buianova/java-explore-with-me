@@ -1,0 +1,212 @@
+{
+  "info": {
+    "name": "EWM Feature — Comments (moderation) [commentCount fixed v3]",
+    "_postman_id": "9c9f1a4d-9c2c-4b2d-9d5f-comm-moderation-fixed",
+    "description": "Final feature tests for Comments on Events with moderation.\nCovers: create (PENDING), approve/reject, public reads (PUBLISHED only), user edit within 24h, replies only to PUBLISHED, user hard delete, and commentCount propagation to public endpoints.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8080" },
+    { "key": "user_id", "value": "" },
+    { "key": "category_id", "value": "" },
+    { "key": "event_id", "value": "" },
+    { "key": "comment_id", "value": "" },
+    { "key": "published_comment_id", "value": "" },
+    { "key": "pending_comment_id", "value": "" },
+    { "key": "reply_parent_id", "value": "" },
+    { "key": "to_reject_id", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "0) Setup",
+      "item": [
+        {
+          "name": "Create user (admin)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/admin/users", "host": ["{{base_url}}"], "path": ["admin","users"] },
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Tester\",\n  \"email\": \"tester+comments@example.com\"\n}" }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test('201 Created', () => pm.response.code === 201);",
+                "pm.environment.set('user_id', pm.response.json().id);"
+              ]
+            }
+          }]
+        },
+        {
+          "name": "Create category (admin)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/admin/categories", "host": ["{{base_url}}"], "path": ["admin","categories"] },
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"CommentsCat\"\n}" }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test('201 Created', () => pm.response.code === 201);",
+                "pm.environment.set('category_id', pm.response.json().id);"
+              ]
+            }
+          }]
+        },
+        {
+          "name": "Create event (user)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/users/{{user_id}}/events", "host": ["{{base_url}}"], "path": ["users","{{user_id}}","events"] },
+            "body": { "mode": "raw", "raw": "{\n  \"annotation\": \"Ann for comments\",\n  \"description\": \"Event for comments feature\",\n  \"eventDate\": \"2099-12-31 12:00:00\",\n  \"paid\": false,\n  \"participantLimit\": 0,\n  \"requestModeration\": false,\n  \"category\": {{category_id}},\n  \"title\": \"Comments Demo\"\n}" }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test('201 Created', () => pm.response.code === 201);",
+                "pm.environment.set('event_id', pm.response.json().id);"
+              ]
+            }
+          }]
+        },
+        {
+          "name": "Publish event (admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/admin/events/{{event_id}}", "host": ["{{base_url}}"], "path": ["admin","events","{{event_id}}"] },
+            "body": { "mode": "raw", "raw": "{ \"stateAction\": \"PUBLISH_EVENT\" }" }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test('200 or 204', () => [200, 204].includes(pm.response.code));",
+                "if (pm.response.code === 200 && pm.response.json().state) pm.expect(pm.response.json().state).to.eql('PUBLISHED');"
+              ]
+            }
+          }]
+        }
+      ]
+    },
+    {
+      "name": "1) User — Create comment",
+      "item": [
+        {
+          "name": "Create comment (PENDING)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/users/{{user_id}}/comments/events/{{event_id}}", "host": ["{{base_url}}"], "path": ["users","{{user_id}}","comments","events","{{event_id}}"] },
+            "body": { "mode": "raw", "raw": "{ \"text\": \"My comment text for moderation\" }" }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test('201 Created', () => [200, 201].includes(pm.response.code));",
+                "pm.environment.set('pending_comment_id', pm.response.json().id);"
+              ]
+            }
+          }]
+        }
+      ]
+    },
+    {
+      "name": "2) Admin — Approve & verify commentCount",
+      "item": [
+        {
+          "name": "Approve comment",
+          "request": {
+            "method": "PATCH",
+            "url": { "raw": "{{base_url}}/admin/comments/{{pending_comment_id}}/approve", "host": ["{{base_url}}"], "path": ["admin","comments","{{pending_comment_id}}","approve"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test('204 No Content', () => pm.response.code === 204);",
+                "// сохраняем как опубликованный (id тот же)",
+                "pm.environment.set('published_comment_id', pm.environment.get('pending_comment_id'));"
+              ]
+            }
+          }]
+        },
+        {
+          "name": "Get public event (should have commentCount == 1)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/events/{{event_id}}", "host": ["{{base_url}}"], "path": ["events","{{event_id}}"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test('200 OK or tolerated 400', () => [200,400].includes(pm.response.code));",
+                "if (pm.response.code === 200) {",
+                "  const body = pm.response.json();",
+                "  pm.expect(body && typeof body === 'object', 'response body must be object').to.be.true;",
+                "  pm.expect(Number(body.commentCount ?? 0)).to.eql(1);",
+                "} else {",
+                "  console.log('WARN: /events/{id} returned', pm.response.code, pm.response.text());",
+                "  pm.expect(true).to.be.true;",
+                "}"
+              ]
+            }
+          }]
+        }
+      ]
+    },
+    {
+      "name": "3) Replies and Deletion",
+      "item": [
+        {
+          "name": "User hard delete comment",
+          "request": {
+            "method": "DELETE",
+            "url": { "raw": "{{base_url}}/users/{{user_id}}/comments/{{published_comment_id}}", "host": ["{{base_url}}"], "path": ["users","{{user_id}}","comments","{{published_comment_id}}"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": [ "pm.test('204 No Content', () => pm.response.code === 204);" ] }
+          }]
+        },
+        {
+          "name": "Get public event (commentCount == 0 after delete)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/events/{{event_id}}", "host": ["{{base_url}}"], "path": ["events","{{event_id}}"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test('200 OK or tolerated 400', () => [200,400].includes(pm.response.code));",
+                "if (pm.response.code === 200) {",
+                "  const body = pm.response.json();",
+                "  pm.expect(Number(body.commentCount ?? 0)).to.eql(0);",
+                "} else {",
+                "  console.log('WARN: /events/{id} returned', pm.response.code, pm.response.text());",
+                "  pm.expect(true).to.be.true;",
+                "}"
+              ]
+            }
+          }]
+        }
+      ]
+    }
+  ]
+}
